@@ -1,0 +1,7 @@
+README.md
+mahjong.cpp
+setup.py
+MahjongGB.egg-info/PKG-INFO
+MahjongGB.egg-info/SOURCES.txt
+MahjongGB.egg-info/dependency_links.txt
+MahjongGB.egg-info/top_level.txt
