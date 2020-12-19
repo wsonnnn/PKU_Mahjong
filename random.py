@@ -22,7 +22,20 @@ def get_range(card_type):
         return 18,26
     else:
         return False, False
+#将牌型字符串进行编码
+def index_str(index):
+    if index <= 8:
+        return "W"+str(index+1)
+    elif index <= 17:
+        return "B"+str(index-8)
+    elif index <= 26:
+        return "T"+str(index-17)
+    elif index <= 30:
+        return "F"+str(index-26)
+    else:
+        return "J"+str(index-30)
 class Pack(object):
+    #由于算番器兼容性，没有把offer换成trainid
     def __init__(self,type,tile,offer):
         self.type = type
         self.tile = tile # -1 0-34   -1 for an'gang
@@ -46,10 +59,18 @@ class PlayerData(object):
     def get_trainid(self, id):
         return (id - self.id + 4) % 4
     def check_bugang(self, card_type):#这里补杠只能在当前抽到补杠牌时才能补杠，可能之后再补杠的策略更好
+        avail_type = []
         len_pack = len(self.pack_list[0])
         for i in range(len):
-            if self.pack_list[i].type == 0 and self.pack_list[i].tile == card_type:
-                return True
+            type_id = str_index(self.pack_list[0][i].tile)
+            if self.pack_list[0][i].type == "PENG" and type_id  == card_type:
+                avail_type.append(card_type)
+            if self.pack_list[i].type == "PENG" and self.hand[type_id] != 0:
+                avail_type.append(type_id)
+        if len(avail_type)!=0:
+            return True, avail_type
+        else:
+            return False, avail_type
 
     def check_gang(self, my_card, card_type):
         avail_type = []
@@ -57,7 +78,7 @@ class PlayerData(object):
             for i in range(35):
                 if self.hand[i] == 4:
                     avail_type.append(i)
-        elif self.hand[card_type] == card_type:
+        elif self.hand[card_type] == 3:
             avail_type.append(card_type)
         if len(avail_type) == 0:
             return False, avail_type
@@ -90,7 +111,7 @@ class PlayerData(object):
         if card_type-1>=a and card_type+1<=b and self.hand[card_type-1]!=0 and self.hand[card_type+1] !=0:
             avail_type.append(card_type)
         if card_type + 2 <= b and self.hand[card_type+2]!=0 and self.hand[card_type+1]!=0:
-                avail_type.append(card_type)
+                avail_type.append(card_type+1)
         if len(avail_type) != 0:
             return True, avail_type
 
@@ -98,7 +119,7 @@ class PlayerData(object):
 
     def get_peng_use(self, id, chupai, peng_type, penged_id):
         #得出peng的pack
-        pack = Pack(pack_type["PENG"], peng_type, penged_id)
+        pack = Pack("PENG", index_str(peng_type), penged_id)
         #加入到id对应的pack list
         self.pack_list[id].append(pack)
         #对于出牌进行维护
@@ -117,7 +138,14 @@ class PlayerData(object):
             return chi_type - 1, chi_type
     
     def get_chi_use(self, id, chi_type, chied_id, card_type, chi_card):
-        pack = Pack(pack_type["CHI"], chi_type, chied_id)
+        if card_type < chi_card:
+            num_last = 2
+        elif card_type == chi_card:
+            num_last = 1
+        else:
+            num_last = 0
+        
+        pack = Pack("CHI", index_str(chi_type), num_last)
         self.pack_list[id].append(pack)
         self.chupai(id, card_type)
         self.hand_num_list[id] -= 2
@@ -128,10 +156,10 @@ class PlayerData(object):
             self.hand[a] -= 1
             self.hand[b] -= 1
     
-    def get_angang(self, id, gang_num):
+    def get_angang(self, id, gang_num, playid):
         self.hand_num_list[id] -= 4
         if id == 0:
-            pack = Pack(pack_type["GANG"], gang_num, id)
+            pack = Pack("GANG", index_str(gang_num), playid)
             self.pack_list[id].append(pack)
             self.used_card[gang_num] += 4
             self.hand[gang_num] -= 4
@@ -141,15 +169,15 @@ class PlayerData(object):
             
     
     def get_gang(self, id, gang_type, past_id):
-        pack = Pack(pack_type["GANG"], gang_type, past_id)
+        pack = Pack("GANG", index_str(gang_type), past_id)
         self.pack_list[id].append(pack)
         self.hand_num_list[id] -= 3
         self.used_card[gang_type] += 3
         if id == 0:
             self.hand[gang_type] -=3
     
-    def get_bugang(self, id, gang_type):
-        pack = Pack(pack_type["GANG"], gang_type, id)
+    def get_bugang(self, id, gang_type, play_id):
+        pack = Pack("GANG", index_str(gang_type), play_id)
         self.pack_list[id].append(pack)
         self.hand_num_list[id] -= 1
         self.used_card[gang_type] += 1
@@ -176,18 +204,7 @@ class PlayerData(object):
 def str_index(str):
     return table_transform[str[0]]+int(str[1])
 
-#将牌型字符串进行编码
-def index_str(index):
-    if index <= 8:
-        return "W"+str(index+1)
-    elif index <= 17:
-        return "B"+str(index-8)
-    elif index <= 26:
-        return "T"+str(index-17)
-    elif index <= 30:
-        return "F"+str(index-26)
-    else:
-        return "J"+str(index-30)
+
 
 #return turnID data request response state
 #turnID int 当前turn数
@@ -294,8 +311,8 @@ def longterm_programming():
                 card_type = str_index(Input[3])
                 past_input = total_request[turnID-1]
                 id, peng_type = past_processing(past_input)
-                past_train_id = my_data.get_trainid(id)
-                my_data.get_peng_use(train_id, card_type, peng_type, past_train_id)
+                #past_train_id = my_data.get_trainid(id)
+                my_data.get_peng_use(train_id, card_type, peng_type, id)
                 if train_id == 0:
                     print("PASS")
                 else:
@@ -339,17 +356,17 @@ def longterm_programming():
             elif Input[2] == "GANG":
                 past_input = total_request[turnID-1].split(" ")
                 if past_input[2] == "DRAW":#暗杠
-                    my_data.get_angang(train_id, gang_num)
+                    my_data.get_angang(train_id, gang_num, playid)
                 else:
                     gang_card = str_index(past_input[-1])
-                    past_train_id = my_data.get_trainid(int(past_input[1]))
-                    my_data.get_gang(train_id, gang_card, past_train_id)
+                    past_id = int(past_input[1])
+                    my_data.get_gang(train_id, gang_card, past_id)
                 print("PASS")
                 L_P()
                 continue
             elif Input[2] == "BUGANG":
                 card_type = str_index(Input[3])
-                my_data.get_bugang(train_id, card_type)
+                my_data.get_bugang(train_id, card_type, playid)
                 print("PASS")
                 L_P()
                 continue
