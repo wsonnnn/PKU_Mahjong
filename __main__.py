@@ -408,7 +408,7 @@ def longterm_programming():
                                 break
                     elif gang:
                         print("GANG",index_str(action2[0]))
-                    elif gang:
+                    elif chi:
                         print("CHI",index_str(action4[0]),end = " ")
                         for i in range(34):
                             if hand[i] != 0:
