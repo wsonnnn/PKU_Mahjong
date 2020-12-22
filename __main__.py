@@ -54,13 +54,18 @@ def tuple_hand(hand):
     return tuple(h_l)
 class PlayerData(object):
     def __init__(self, hand, my_id):
+        #当前各玩家的手牌总数
         self.hand_num_list = np.ones(4, dtype = int) * 13
+        #当前各个玩家的牌墙数量
         self.TileWallList = np.ones(4,dtype = int) * TILE_NUM
+        #我当前的手牌
         self.hand = hand
+        #我当前的id
         self.id = my_id
         #当前已用牌堆
         self.used_card = np.zeros(34, dtype = 'int64')
         #当前每个player已打出牌，按照顺序而非总体
+        #牌型编码 万：0-8，饼 9-17 条 18-26 风27-30 中发白 31-33  
         self.used = {0:[],1:[],2:[],3:[]}
         self.pack_list = {0:[], 1:[], 2:[], 3:[]}
 

@@ -16,8 +16,10 @@ class tileWall(object):
         return a
 class Judge(object):
     def __init__(self, same_tile = False):
+        self.agent = []
         self.run_time_policy = same_tile
         self.tileWall_Save = []
+        self.tileWall = []
     def get_newdata(self):
         List = np.arange(136)
         sampleList = np.random.permutation(List)
@@ -46,8 +48,29 @@ class Judge(object):
             for i in range(len(p)):
                 p[i] /= 4
         return walls
-    def next_t(t):
+    def next_t(self, t):
         return (t+1) % 4
+    def pick_card(self, id):
+        k = -1
+        if len(self.tileWall[i]) != 0:
+            k = self.tileWall[i][0]
+            self.tileWall[i] = self.tileWall[1:]
+        return k
+    def get_agent(self,agent):
+        self.agent.append(agent)
+    def prepare_game(self, train_mode = 0):
+        self.tileWall = self.get_newWall()
+        if len(self.agent) != 4:
+            print("agent not fulled")
+            return
+        self.currentPlayer = random.randint(0,3)
+        for i in range(4):
+            self.agent[i].get_init_tile(self.tileWall[i][0:13])
+            self.tileWall[i] = self.tileWall[i][13:]
+        new_card = self.pick_card(self.currentPlayer)
+        while(True):
+            for i in range(4):
+                state, throwCard = agent.
     def chef_play(self, ai):
         now_turn = random.randint(0,3)
         Wall = j.get_newWall()
