@@ -72,6 +72,10 @@ class PlayerData(object):
         return (id - self.id + 4) % 4
     def check_bugang(self, card_type):#这里补杠只能在当前抽到补杠牌时才能补杠，可能之后再补杠的策略更好
         avail_type = []
+        next_id = (self.id + 1) % 4
+        #按照裁判代码，检查了自己和下家的牌墙余数
+        if self.TileWallList[next_id] == 0 or self.TileWallList[self.id]:
+            return False, avail_type
         len_pack = len(self.pack_list[0])
         for i in range(len_pack):
             type_id = str_index(self.pack_list[0][i].tile)
