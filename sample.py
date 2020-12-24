@@ -6,8 +6,10 @@ request = []
 response = []
 hand = np.zeros(35,dtype = 'int64')
 table_transform={'W':-1,'B':8,'T':17,'F':26,'J':30}
+
 def str_index(str):
     return table_transform[str[0]]+int(str[1])
+
 def index_str(index):
     if index <= 8:
         return "W"+str(index+1)

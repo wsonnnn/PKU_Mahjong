@@ -1,8 +1,16 @@
 import numpy as np
 import json
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
 #import random
 from MahjongGB import MahjongFanCalculator
+from SL_fully import agent
+from copy import deepcopy
 import sys
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 request = []
 response = []
 hand = np.zeros(34,dtype = 'int64')
@@ -52,6 +60,7 @@ def tuple_hand(hand):
         for j in range(hand[i]):
             h_l.append(index_str(i))
     return tuple(h_l)
+
 class PlayerData(object):
     def __init__(self, hand, my_id):
         #当前各玩家的手牌总数
@@ -71,7 +80,31 @@ class PlayerData(object):
 
     def get_myid(self):
         return self.id
-    
+
+    def init_input(self, card_type, chupai = False):
+        #[hand, an, pong, gang, chi, left, require]
+        angang = np.zeros(34)
+        gang = np.zeros(34)
+        peng = np.zeros(34)
+        chi = np.zeros(34)
+        card = np.zeros(34)
+        if not chupai:
+            card[card_type] +=1
+        used = self.used_card + self.hand
+        for pack in self.pack_list[0]:
+            if pack.type == "PENG":
+                peng[str_index(pack.tile)] += 1
+            elif pack.type == "CHI":
+                chi[str_index(pack.tile)] += 1
+            else:
+                if pack.offer == 0:
+                    angang[str_index(pack.tile)] +=1
+                else:
+                    gang[str_index(pack.tile)] +=1
+
+        features = torch.FloatTensor([self.hand, angang, peng, gang, chi, 4-used, card]).to(device)
+        return features
+
     #为了方便训练，需要将playID相对自己编号，因为针对上家和下家出牌的需要的操作是有区别的
     def get_trainid(self, id):
         return (id - self.id + 4) % 4
@@ -106,7 +139,7 @@ class PlayerData(object):
         else:
             return True, avail_type
 
-    def check_hu(self, my_card, card_type, pid, gang):
+    def check_hu(self, my_card, card_type, pid, gang, meng, quan):
         hand = self.hand
         pack_list = []
         #hand[card_type] += 1
@@ -136,7 +169,7 @@ class PlayerData(object):
             is_gang = True
         reward = 0
         try:
-            ans = MahjongFanCalculator(tuple_p, tuple_h, index_str(card_type), 1, my_card, is_jue, is_gang, is_last, 0, 0)
+            ans = MahjongFanCalculator(tuple_p, tuple_h, index_str(card_type), 1, my_card, is_jue, is_gang, is_last, meng, quan)
         except Exception as err:
             is_hu = False
         else:
@@ -144,6 +177,7 @@ class PlayerData(object):
             for i in range(len(ans)):
                 reward += ans[i][0]
         return is_hu, reward
+
     def check_peng(self, card_type):
         avail_type = []
         if self.hand[card_type] == 2 or self.hand[card_type] == 3:
@@ -152,6 +186,7 @@ class PlayerData(object):
             return False, avail_type
         else:
             return True, avail_type
+
     def check_chi(self, card_type, train_id):
         avail_type = []
         if train_id != 3:
@@ -160,11 +195,11 @@ class PlayerData(object):
         if a==False:
             return False, avail_type
         if card_type-2>=a and self.hand[card_type-2]!=0 and self.hand[card_type-1]!=0:
-            avail_type.append(card_type-1)
+            avail_type.append(3)
         if card_type-1>=a and card_type+1<=b and self.hand[card_type-1]!=0 and self.hand[card_type+1] !=0:
-            avail_type.append(card_type)
+            avail_type.append(2)
         if card_type + 2 <= b and self.hand[card_type+2]!=0 and self.hand[card_type+1]!=0:
-                avail_type.append(card_type+1)
+                avail_type.append(1)
         if len(avail_type) != 0:
             return True, avail_type
         else: return False, avail_type
@@ -268,8 +303,6 @@ class PlayerData(object):
 def str_index(str):
     return table_transform[str[0]]+int(str[1])
 
-
-
 #return turnID data request response state
 #turnID int 当前turn数
 #data 上一个回合自己上传的data
@@ -296,17 +329,22 @@ def print_hand(hand):
         for j in range(hand[i]):
             hhh.append(index_str(i))
     return hhh
+    
 def L_P():
     print(">>>BOTZONE_REQUEST_KEEP_RUNNING<<<")
     sys.stdout.flush()
+
 def get_action(data):
     return 1,2,3
+
 def past_processing(input):
     Input = input.split(" ")
     id = int(Input[1])
     card_type = str_index(Input[-1])
     return id, card_type
+
 total_request = []
+
 def get_input(hang):
     ss = []
     for i in range(hang):
@@ -318,6 +356,8 @@ def longterm_programming():
     Input = get_input(3)[-1]
     total_request.append(Input)
     _, ID, quan = Input.split(" ")
+    meng = int(ID)
+    quan = int(quan)
     print("PASS")
     L_P()
     Input = get_input(2)[-1]
@@ -330,6 +370,9 @@ def longterm_programming():
     #check_action_flag = 0
     turnID = 1
     gang_num = -1
+    agent = agent()
+    # TODO : add models
+    # 1 : 打牌， 2:碰， 3:吃，4:杠
     while(True):
         Input = get_input(1)[-1]
         total_request.append(Input)
@@ -345,7 +388,7 @@ def longterm_programming():
             #my_data.get_newtile(card_type, 0)
             bu_gang, action1 = my_data.check_bugang(card_type)
             gang, action2 = my_data.check_gang(my_card = True, card_type = -1)
-            hu, action3 = my_data.check_hu(my_card = True, card_type = card_type, pid = 0, gang = False)
+            hu, action3 = my_data.check_hu(my_card = True, card_type = card_type, pid = 0, gang = False, meng= meng, quan=quan)
             if bu_gang:
                 avail_type.append(str_trans_action["BUGANG"])
                 avail_num.append(action1)
@@ -369,10 +412,23 @@ def longterm_programming():
             #    gang_num = x
             #print(action_trans[action],index_str(x))
             else:
+                #TODO
+                # 打牌， 碰， 吃， 杠
+                features = my_data.init_input('W0', chupai=True)
+                mask = features[0]
+                pred_logits = agent.nets[1](features.view(1, -1))
+                masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+                # pred_prob = F.softmax(masked_logits, dim=1)
+                
+                result = torch.argmax(masked_logits, dim=1)[0].item()
+                print("PLAY", index_str(result))
+
+                '''
                 for i in range(34):
                     if my_data.hand[i] != 0:
                         print("PLAY", index_str(i))
                         break
+                '''
             L_P()
             continue
         elif Input[0] == '3':
@@ -391,7 +447,7 @@ def longterm_programming():
                 else:#这是别人出的牌
                     peng, action1 = my_data.check_peng(card_type)
                     gang, action2 = my_data.check_gang(my_card = False, card_type = card_type)
-                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False)
+                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False, meng=meng, quan=quan)
                     chi, action4 = my_data.check_chi(card_type, train_id)
                     if peng:
                         avail_type.append(str_trans_action["PENG"])
@@ -409,35 +465,69 @@ def longterm_programming():
                     avail_num.append([])
                     if hu:
                         print("HU")
-                    elif peng:
-                        print("PENG",end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
-                    elif gang:
-                        print("GANG",index_str(action2[0]))
-                    elif chi:
-                        print("CHI",index_str(action4[0]),end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
                     else:
-                        print("PASS")
-                    #avail_num.append(my_data.hand)
-                    #if my_data.check_peng(card_type):
-                    #    avail_action.append(str_trans_action["PENG"])
-                    #if my_data.check_hu(my_card = False, card_type = card_type):
-                    #    avail_action.append(str_trans_action["HU"])
-                    #if my_data.check_chi(card_type, train_id):
-                    #    avail_action.append(str_trans_action["CHI"])
-                    #if my_data.check_gang(my_card = False, card_type = card_type):
-                    #    avail_action.append(str_trans_action["GANG"])
-                    #avail_action.append(str_trans_action["PASS"])
-                    #action, x, y = get_action(my_data, avail_type, avail_num)
+                        max_logit = 0
+                        max_action = 0
+                        action_tuple = 0
+                        raw_features = my_data.init_input(card_type, chupai=False)
+                        features = deepcopy(raw_features).view(1, -1)
+                        if peng + chi + gang == 0:
+                            print("PASS")
+                        else:
+                            pred_peng = agent.nets[2](features) * peng # 2
+                            max_peng = torch.argmax(pred_peng, dim=1)[0].item()
+                            pred_chi = agent.nets[3](features) * chi # 4
+                            pred_recons = torch.cat([pred_chi[0][0].view(1, 1), (pred_chi[0][1] + pred_chi[0][2] + pred_chi[0][3]).view(1, 1)], dim=1)
+                            max_chi = torch.argmax(pred_recons, dim=1)[0].item()
+                            pred_gang = agent.nets[4](features) * gang # 2
+                            max_gang = torch.argmax(pred_gang, dim=1)[0].item()
+
+                            if max_peng + max_chi + max_gang == 0:
+                                print("PASS")
+                            else:
+                                if pred_gang[0][1] >= pred_peng[0][1] and pred_gang[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    print("GANG {}".format(index_str(card_type)))
+                                elif pred_peng[0][1] >= pred_gang[0][1] and pred_peng[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    features = my_data.init_input(card_type, chupai=True)
+                                    features[0][card_type] -= 2
+                                    features[2][card_type] += 3
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+                                    # pred_prob = F.softmax(masked_logits, dim=1)
+                
+                                    result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("PENG {}".format(str_index(result)))
+                                else:
+                                    pred_recons = pred_chi[[0, 0, 0], [1, 2, 3]]
+                                    chi_mask = [0,0,0]
+                                    for x in avail_type:
+                                        chi_mask[x-1] = 1
+                                    chi_mask = torch.FloatTensor(chi_mask).view(1, 3).to(device)
+                                    
+                                    masked_recons = pred_recons * chi_mask
+                                    chi_res = torch.argmax(masked_recons, dim=1)[0].item()
+
+                                    middle = card_type + 1 - chi_res
+
+                                    features = my_data.init_input(card_type, chupai=True)
+
+                                    features[0][card_type] += 1
+                                    for i in range(3):
+                                        feature[0][card_type - chi_res + i] -= 1
+                                        feature[4][card_type - chi_res + i] += 1
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+
+                                    discard_result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("CHI {} {}".format(str_index(middle), str_index(discard_result)))
+
                 L_P()
                 continue
+
             elif Input[2] == "PENG":
                 card_type = str_index(Input[3])
                 past_input = total_request[turnID-1]
@@ -449,7 +539,7 @@ def longterm_programming():
                 else:
                     peng, action1 = my_data.check_peng(card_type)
                     gang, action2 = my_data.check_gang(my_card = False, card_type = card_type)
-                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False)
+                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False, meng=meng, quan=quan)
                     chi, action4 = my_data.check_chi(card_type, train_id)
                     if peng:
                         avail_type.append(str_trans_action["PENG"])
@@ -467,21 +557,65 @@ def longterm_programming():
                     avail_num.append([])
                     if hu:
                         print("HU")
-                    elif peng:
-                        print("PENG",end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
-                    elif gang:
-                        print("GANG",index_str(action2[0]))
-                    elif chi:
-                        print("CHI",index_str(action4[0]),end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
-                    else: print("PASS")
+                    else:
+                        max_logit = 0
+                        max_action = 0
+                        action_tuple = 0
+                        raw_features = my_data.init_input(card_type, chupai=False)
+                        features = deepcopy(raw_features).view(1, -1)
+                        if peng + chi + gang == 0:
+                            print("PASS")
+                        else:
+                            pred_peng = agent.nets[2](features) * peng # 2
+                            max_peng = torch.argmax(pred_peng, dim=1)[0].item()
+                            pred_chi = agent.nets[3](features) * chi # 4
+                            pred_recons = torch.cat([pred_chi[0][0].view(1, 1), (pred_chi[0][1] + pred_chi[0][2] + pred_chi[0][3]).view(1, 1)], dim=1)
+                            max_chi = torch.argmax(pred_recons, dim=1)[0].item()
+                            pred_gang = agent.nets[4](features) * gang # 2
+                            max_gang = torch.argmax(pred_gang, dim=1)[0].item()
+
+                            if max_peng + max_chi + max_gang == 0:
+                                print("PASS")
+                            else:
+                                if pred_gang[0][1] >= pred_peng[0][1] and pred_gang[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    print("GANG {}".format(index_str(card_type)))
+                                elif pred_peng[0][1] >= pred_gang[0][1] and pred_peng[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    features = my_data.init_input(card_type, chupai=True)
+                                    features[0][card_type] -= 2
+                                    features[2][card_type] += 3
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+                                    # pred_prob = F.softmax(masked_logits, dim=1)
+                
+                                    result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("PENG {}".format(str_index(result)))
+                                else:
+                                    pred_recons = pred_chi[[0, 0, 0], [1, 2, 3]]
+                                    chi_mask = [0,0,0]
+                                    for x in avail_type:
+                                        chi_mask[x-1] = 1
+                                    chi_mask = torch.FloatTensor(chi_mask).view(1, 3).to(device)
+                                    
+                                    masked_recons = pred_recons * chi_mask
+                                    chi_res = torch.argmax(masked_recons, dim=1)[0].item()
+
+                                    middle = card_type + 1 - chi_res
+
+                                    features = my_data.init_input(card_type, chupai=True)
+
+                                    features[0][card_type] += 1
+                                    for i in range(3):
+                                        feature[0][card_type - chi_res + i] -= 1
+                                        feature[4][card_type - chi_res + i] += 1
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+
+                                    discard_result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("CHI {} {}".format(str_index(middle), str_index(discard_result)))
                 L_P()
                 continue
             elif Input[2] == "CHI":
@@ -496,7 +630,7 @@ def longterm_programming():
                 else:
                     peng, action1 = my_data.check_peng(card_type)
                     gang, action2 = my_data.check_gang(my_card = False, card_type = card_type)
-                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False)
+                    hu, action3 = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = False, meng=meng, quan=quan)
                     chi, action4 = my_data.check_chi(card_type, train_id)
                     if peng:
                         avail_type.append(str_trans_action["PENG"])
@@ -514,21 +648,65 @@ def longterm_programming():
                     avail_num.append([])
                     if hu:
                         print("HU")
-                    elif peng:
-                        print("PENG",end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
-                    elif gang:
-                        print("GANG",index_str(action2[0]))
-                    elif chi:
-                        print("CHI",index_str(action4[0]),end = " ")
-                        for i in range(34):
-                            if hand[i] != 0:
-                                print(index_str(i))
-                                break
-                    else: print("PASS")
+                    else:
+                        max_logit = 0
+                        max_action = 0
+                        action_tuple = 0
+                        raw_features = my_data.init_input(card_type, chupai=False)
+                        features = deepcopy(raw_features).view(1, -1)
+                        if peng + chi + gang == 0:
+                            print("PASS")
+                        else:
+                            pred_peng = agent.nets[2](features) * peng # 2
+                            max_peng = torch.argmax(pred_peng, dim=1)[0].item()
+                            pred_chi = agent.nets[3](features) * chi # 4
+                            pred_recons = torch.cat([pred_chi[0][0].view(1, 1), (pred_chi[0][1] + pred_chi[0][2] + pred_chi[0][3]).view(1, 1)], dim=1)
+                            max_chi = torch.argmax(pred_recons, dim=1)[0].item()
+                            pred_gang = agent.nets[4](features) * gang # 2
+                            max_gang = torch.argmax(pred_gang, dim=1)[0].item()
+
+                            if max_peng + max_chi + max_gang == 0:
+                                print("PASS")
+                            else:
+                                if pred_gang[0][1] >= pred_peng[0][1] and pred_gang[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    print("GANG {}".format(index_str(card_type)))
+                                elif pred_peng[0][1] >= pred_gang[0][1] and pred_peng[0][1]>= (pred_chi[0][1]+pred_chi[0][2]+pred_chi[0][3])*max_chi:
+                                    features = my_data.init_input(card_type, chupai=True)
+                                    features[0][card_type] -= 2
+                                    features[2][card_type] += 3
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+                                    # pred_prob = F.softmax(masked_logits, dim=1)
+                
+                                    result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("PENG {}".format(str_index(result)))
+                                else:
+                                    pred_recons = pred_chi[[0, 0, 0], [1, 2, 3]]
+                                    chi_mask = [0,0,0]
+                                    for x in avail_type:
+                                        chi_mask[x-1] = 1
+                                    chi_mask = torch.FloatTensor(chi_mask).view(1, 3).to(device)
+                                    
+                                    masked_recons = pred_recons * chi_mask
+                                    chi_res = torch.argmax(masked_recons, dim=1)[0].item()
+
+                                    middle = card_type + 1 - chi_res
+
+                                    features = my_data.init_input(card_type, chupai=True)
+
+                                    features[0][card_type] += 1
+                                    for i in range(3):
+                                        feature[0][card_type - chi_res + i] -= 1
+                                        feature[4][card_type - chi_res + i] += 1
+
+                                    mask = features[0]
+                                    pred_logits = agent.nets[1](features.view(1, -1))
+                                    masked_logits = torch.where(mask > 0, pred_logits, torch.fully_like(pred_logits, -1e20))
+
+                                    discard_result = torch.argmax(masked_logits, dim=1)[0].item()
+                                    print("CHI {} {}".format(str_index(middle), str_index(discard_result)))
                 L_P()
                 continue
             elif Input[2] == "GANG":
@@ -545,7 +723,7 @@ def longterm_programming():
                 continue
             elif Input[2] == "BUGANG":
                 card_type = str_index(Input[3])
-                is_hu, action = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = True)
+                is_hu, action = my_data.check_hu(my_card = False, card_type = card_type, pid = train_id, gang = True,meng= meng,quan= quan)
                 my_data.get_bugang(train_id, card_type, playid)
                 if is_hu:
                     print("HU")

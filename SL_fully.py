@@ -55,12 +55,21 @@ def initial_order():
 initial_order()
 
 
-def FeatureExtractor(PlayerList):
+def FeatureExtractor(PlayerList, actions, winner):
+
+    requires_tiles = [np.zeros(34) for _ in range(4)]
+    if action_mapping[actions[1]] in [2, 3, 4] and actions[0] == winner:
+        #print("this is nice")
+        requires_tiles[int(winner)][order_mapping[actions[3]]] = 1
 
     features = [player.Encode2TokyoHot() for player in PlayerList]
 
+    # 34 x 1
+    #[hand, angang, pong, gang, chi, out]
+    #[hand, an, pong, gang, chi, left, require]
+
     # public features for players
-    # 
+
     public  = [feat[2:] for feat in features]
     temp = []
     for feat in public:
@@ -69,15 +78,13 @@ def FeatureExtractor(PlayerList):
     # private features for players
     private = [feat[0:2] for feat in features]
 
-    out_feat = [np.array(x + y) for (x, y) in zip(private, public)]
+    out_feat = [np.array(feat[:-1]) for feat in features]
     sum_feat = [np.array(x + temp) for x in private]
 
     # left features for players
     left = [4 - x.sum(axis=0) for x in sum_feat]
 
-    # TODO : last tile for the players
-
-    return [np.concatenate([x, np.expand_dims(y, axis=0)], axis=0) for (x, y) in zip(out_feat, left)]
+    return [np.concatenate([x, np.expand_dims(y, axis=0), np.expand_dims(z, axis=0)], axis=0) for (x, y, z) in zip(out_feat, left, requires_tiles)]
 
 
 def single_file_reader(f):
@@ -144,7 +151,7 @@ class Player(object):
         chi = [i for i in self.info[1].values()]
         gang = [i for i in self.info[2].values()]
         out = [i for i in self.out.values()]
-        return [hand, angang, out, pong, gang, chi]
+        return [hand, angang, pong, gang, chi, out]
 
     def append(self, actions):
 
@@ -175,9 +182,9 @@ class Player(object):
                     self.out[tile] += 1
             
 
-
         elif action_no == 2 or action_no == 3 or action_no == 4:
             pid, action, tiles, ltile, lpid = actions
+            
             if self.id == pid:
                 self.hand[ltile] += 1
                 for tile in tiles:
@@ -195,14 +202,14 @@ def canChi(handcards, card):
             return True
         if card_no >= 1 and card_no<=7 and cards[card_no-1]>0 and cards[card_no+1]>0:
             return True
-        if card_no >= 2 and card_no<=9 and cards[card_no-1]>0 and cards[card_no-2]>0:
+        if card_no >= 2 and card_no<=8 and cards[card_no-1]>0 and cards[card_no-2]>0:
             return True
     if card_no >= 9 and card_no < 18:
         if card_no >= 0+9 and card_no<=6+9 and cards[card_no+1]>0 and cards[card_no+2]>0:
             return True
         if card_no >= 1+9 and card_no<=7+9 and cards[card_no-1]>0 and cards[card_no+1]>0:
             return True
-        if card_no >= 2+9 and card_no<=9+9 and cards[card_no-1]>0 and cards[card_no-2]>0:
+        if card_no >= 2+9 and card_no<=8+9 and cards[card_no-1]>0 and cards[card_no-2]>0:
             return True
 
     if card_no >= 18 and card_no < 27:
@@ -210,7 +217,7 @@ def canChi(handcards, card):
             return True
         if card_no >= 1+18 and card_no<=7+18 and cards[card_no-1]>0 and cards[card_no+1]>0:
             return True
-        if card_no >= 2+18 and card_no<=9+18 and cards[card_no-1]>0 and cards[card_no-2]>0:
+        if card_no >= 2+18 and card_no<=8+18 and cards[card_no-1]>0 and cards[card_no-2]>0:
             return True
     return False
 
@@ -277,68 +284,46 @@ class agent(object):
             if action_type == 1:
                 label = order_mapping[line[2][0]]
             else:
-                label = 1
+                if action_type == 3:
+                    for x in range(3):
+                        if line[2][x] == str(line[3]):
+                            label = x + 1
+                            break
+                else:
+                    label = 1
 
-            for player in PlayerList:
-                player.append(line)
-
-            states = FeatureExtractor(PlayerList)
+            states = FeatureExtractor(PlayerList, line, winner)
             cur_id = line[0]
             ac_ty = line[1]
-            if cur_id != winner :
+            if cur_id != winner and action_type == 1:
                 card = line[2][0]
                 # print('winint=', int(winner))
                 # print('win=', winner)
-                if PlayerList[int(winner)].hand[card] >=2 and line_next[1] != '碰' and random.random()<0.3:
+                if PlayerList[int(winner)].hand[card] >=2 and line_next[1] != '碰' :
                     dataset_all[2].append((states[int(winner)], 0, score))
 
-                if canChi(PlayerList[int(winner)].hand, card) and line_next[1] != '吃' and (int(cur_id) == (int(winner)+3)%4) and random.random()<0.3:
+                if canChi(PlayerList[int(winner)].hand, card) and line_next[1] != '吃' and (int(cur_id) == (int(winner)+3)%4) :
                     dataset_all[3].append((states[int(winner)], 0, score))
 
-                if PlayerList[int(winner)].hand[card] >=2 and line_next[1] != '杠' and random.random()<0.05:
+                if PlayerList[int(winner)].hand[card] >=2 and line_next[1] != '杠':
                     dataset_all[4].append((states[int(winner)], 0, score))
-                '''
-                def canChi(handcards, card):
-                    card_no = order_mapping[card]
-                    cards = list(hadncards.values())
-                    # three cases (card, *, *), (*, card, *), (*, *, card)
-                    if card_no >= 0 and card_no < 9:
-                        if card_no >= 0 and card_no<=6 and cards[card_no+1]>0 and cards[card_no+2]>0:
-                            return True
-                        if card_no >= 1 and card_no<=7 and cards[card_no-1]>0 and cards[card_no+1]>0:
-                            return True
-                        if card_no >= 2 and card_no<=9 and cards[card_no-1]>0 and cards[card_no-2]>0:
-                            return True
-                    if card_no >= 9 and card_no < 18:
-                        if card_no >= 0+9 and card_no<=6+9 and cards[card_no+1]>0 and cards[card_no+2]>0:
-                            return True
-                        if card_no >= 1+9 and card_no<=7+9 and cards[card_no-1]>0 and cards[card_no+1]>0:
-                            return True
-                        if card_no >= 2+9 and card_no<=9+9 and cards[card_no-1]>0 and cards[card_no-2]>0:
-                            return True
-
-                    if card_no >= 18 and card_no < 27:
-                        if card_no >= 0+18 and card_no<=6+18 and cards[card_no+1]>0 and cards[card_no+2]>0:
-                            return True
-                        if card_no >= 1+18 and card_no<=7+18 and cards[card_no-1]>0 and cards[card_no+1]>0:
-                            return True
-                        if card_no >= 2+18 and card_no<=9+18 and cards[card_no-1]>0 and cards[card_no-2]>0:
-                            return True
-                    return False
-                    '''
 
             # modified this line, and you can read all players
             if player_id == winner and 1 <= action_type <= 4:
                 dataset_all[action_type].append((states[int(player_id)], label, score))
 
+            for player in PlayerList:
+                player.append(line)
+
     def dataloader(self):
         files = os.listdir(path_play)
         cnt = 0
         for file in files:
+            if cnt> 200000:
+                break
             if cnt % 1000 == 0:
                 print(cnt)
-            if cnt > 40000:
-                break
+
             cnt += 1
             # print(file)
             position = path_play + '/' + file
@@ -348,10 +333,10 @@ class agent(object):
         
         files = os.listdir(path_mo)
         for file in files:
+            if cnt>270000:
+                break
             if cnt % 1000 == 0:
                 print(cnt)
-            if cnt > 60000 :
-                break
             cnt += 1
             # print(file)
             position = path_mo + '/' + file
@@ -360,7 +345,7 @@ class agent(object):
             self.file_loader(file)
 
 
-def train_test_split(dataset, train_rate=0.7, valid_rate=0.2):
+def train_test_split(dataset, train_rate=0.85, valid_rate=0.15):
     n_total = len(dataset)
     n_train, n_valid = int(train_rate * n_total), int(valid_rate * n_total)
     idx = list(range(n_total))
@@ -381,7 +366,7 @@ def train_test_split(dataset, train_rate=0.7, valid_rate=0.2):
 
     return train_data, valid_data, test_data
 
-def myDataLoader(dataset, batch_size=32):
+def myDataLoader(dataset, batch_size=256):
     n_data = len(dataset)
     n_batch = n_data//batch_size
     if n_data % batch_size != 0:
@@ -404,7 +389,8 @@ valid_loader = myDataLoader(valid_data, batch_size=256)
 test_loader = myDataLoader(test_data, batch_size=256)
 '''
 
-def train_net(train_net, dataset, net_number, epoch=300,):
+def train_net(train_net, dataset, net_number, epoch=3000):
+    #train_net.load_state_dict(torch.load("models1/checkpoint_79_0.39933474900586413.pth"))
     train_net.train()
     train_data, valid_data, test_data = train_test_split(dataset)
     n_train  = len(train_data)
@@ -427,7 +413,6 @@ def train_net(train_net, dataset, net_number, epoch=300,):
             weights = torch.FloatTensor(weights).to(device)
 
             optimizer.zero_grad()
-            predict = train_net(feats.view(-1, all_channel*34))
 
             '''
             log_prob = torch.log(predict)
@@ -436,6 +421,8 @@ def train_net(train_net, dataset, net_number, epoch=300,):
             logits = -1 * log_prob[np.arange(shape[0]), labels]
             loss = (logits * weights).sum()
             '''
+
+            predict = train_net(feats.view(-1, all_channel*34))
             # loss_fn = nn.CrossEntropyLoss().to(device)
             loss = F.cross_entropy(predict, labels).to(device)
             count_zero += labels.sum().item()
@@ -449,11 +436,67 @@ def train_net(train_net, dataset, net_number, epoch=300,):
         print("In epoch {} : train accuracy {} zero {}".format(i, count_train/n_train, 1 - count_zero/n_train))
 
         # TODO : validation accuracy
-        if i % 20 == 0 and i > 0:
-            test_net(train_net, valid_data)
-            torch.save(train_net.state_dict(),'models{}/checkpoint_{}_{}'.format(net_number,i, count_train/n_train))
+        if (i+1) % 20 == 0 and i > 0:
+            test_net(train_net, valid_data, i, net_number)
+            # torch.save(train_net.state_dict(),'models{}/checkpoint_{}_{}.pth'.format(net_number,i, count_train/n_train))
 
-def test_net(net, test_dataset):
+
+def train_discard(train_net, dataset, net_number, epoch=3000):
+    #train_net.load_state_dict(torch.load("models1/checkpoint_79_0.39933474900586413.pth"))
+    train_net.train()
+    train_data, valid_data, test_data = train_test_split(dataset)
+    n_train  = len(train_data)
+
+    optimizer = optim.Adam(train_net.parameters(), lr = 1e-3, weight_decay=1e-5)
+    train_loader = myDataLoader(train_data, batch_size=64)
+
+    for i in tqdm(range(epoch)):
+        count_train = 0
+        count_zero = 0
+        batch_size = 128
+        for batch_xy in myDataLoader(train_data, batch_size=batch_size):
+            
+            feats = [x[0] for x in batch_xy]
+            labels = [x[1]for x in batch_xy]
+            weights = [x[2] for x in batch_xy]
+
+            feats = torch.FloatTensor(np.stack(feats, axis=0)).to(device)
+            labels = torch.LongTensor(labels).to(device)
+            weights = torch.FloatTensor(weights).to(device)
+
+            optimizer.zero_grad()
+
+            pred_logits = train_net(feats.view(-1, all_channel*34))
+            prob_mask = torch.index_select(feats, 1, torch.LongTensor([0]).to(device)).view(-1, 34)
+            masked_predict = torch.where(prob_mask > 0, pred_logits, torch.full_like(pred_logits, -1e20).to(device))
+
+            predict = F.softmax(masked_predict, dim=1)
+            '''
+            log_prob = torch.log(predict)
+            shape = predict.shape
+            
+            logits = -1 * log_prob[np.arange(shape[0]), labels]
+            loss = (logits * weights).sum()
+            '''
+
+            loss = F.cross_entropy(predict, labels).to(device)
+            count_zero += labels.sum().item()
+            #print("the pre is {}  lab is {}".format(predict[1],labels[1]))
+
+            loss.backward()
+            optimizer.step()
+
+            count_train += torch.eq(torch.argmax(predict, dim=1), labels).sum().item()
+
+        print("In epoch {} : train accuracy {} zero {}".format(i, count_train/n_train, 1 - count_zero/n_train))
+
+        # TODO : validation accuracy
+        if (i+1) % 20 == 0 and i > 0:
+            test_discard(train_net, valid_data, i, net_number)
+            # torch.save(train_net.state_dict(),'models{}/checkpoint_{}_{}.pth'.format(net_number,i, count_train/n_train))
+
+
+def test_net(net, test_dataset,i, net_number):
     # print(test_dataset)
     
     count = 0
@@ -469,6 +512,7 @@ def test_net(net, test_dataset):
         labels = torch.LongTensor(labels).to(device)
 
         predict = net(feats.view(-1, all_channel*34))
+
         pred_labels = torch.argmax(predict, dim=1)
         # print(predict.shape)
         # print(labels)
@@ -476,6 +520,38 @@ def test_net(net, test_dataset):
     
     if n_test != 0:
         print("The test accuracy is {}".format(count/n_test))
+        torch.save(net.state_dict(),'models{}/checkpoint_{}_{}_1e-3.pth'.format(net_number,i, count/n_test))
+    return count/n_test
+
+
+def test_discard(net, test_dataset,i, net_number):
+    # print(test_dataset)
+    
+    count = 0
+    n_test = len(test_dataset)
+    test_loader = myDataLoader(test_dataset)
+
+    net.eval()
+    for batch_xy in test_loader:
+        feats = [x[0] for x in batch_xy]
+        labels = [x[1] for x in batch_xy]
+
+        feats = torch.FloatTensor(np.stack(feats, axis=0)).to(device)
+        labels = torch.LongTensor(labels).to(device)
+
+        pred_logits = net(feats.view(-1, all_channel*34))
+        prob_mask = torch.index_select(feats, 1, torch.LongTensor([0]).to(device)).view(-1, 34)
+        masked_predict = torch.where(prob_mask > 0, pred_logits, torch.full_like(pred_logits, -1e20).to(device))
+        predict = F.softmax(masked_predict, dim=1)
+
+        pred_labels = torch.argmax(predict, dim=1)
+        # print(predict.shape)
+        # print(labels)
+        count += torch.eq(pred_labels, labels).sum().item()
+    
+    if n_test != 0:
+        print("The test accuracy is {}".format(count/n_test))
+        torch.save(net.state_dict(),'models{}/checkpoint_{}_{}_1e-3.pth'.format(net_number,i, count/n_test))
     return count/n_test
             
 
@@ -489,7 +565,8 @@ if __name__ == "__main__":
     print(dataset)
     '''
     myagent.dataloader()
-    train_net(myagent.nets[1], dataset_all[1],1)
+    #train_discard(myagent.nets[1], dataset_all[1],1)
+    train_net(myagent.nets[4], dataset_all[4],4)
         
         
     

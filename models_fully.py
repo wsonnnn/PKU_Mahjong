@@ -57,12 +57,10 @@ class DiscardNet(nn.Module):
         super(DiscardNet, self).__init__()
         self.Mahjong = MahjongNet(input, 64, hidden=hidden)
         self.policy = nn.Linear(64, 34)
-        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         out = self.Mahjong(x)
         out = nn.ReLU()(self.policy(out).view(-1, 34))
-        out = self.softmax(out)
         return out
 
 # for Chow, Pong, Kong etc.
