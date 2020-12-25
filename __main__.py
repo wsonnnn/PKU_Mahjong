@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 #import random
 from MahjongGB import MahjongFanCalculator
-from SL_fully import agent
+from SL_fully import Agent
 from copy import deepcopy
 import sys
 
@@ -352,6 +352,7 @@ def get_input(hang):
         if len(k)>1:
             ss.append(k)
     return ss
+
 def longterm_programming():
     Input = get_input(3)[-1]
     total_request.append(Input)
@@ -370,9 +371,17 @@ def longterm_programming():
     #check_action_flag = 0
     turnID = 1
     gang_num = -1
-    agent = agent()
+    agent = Agent()
+
+    agent.nets[1].load_state_dict(torch.load("discard_0.6084.pth"))
+    agent.nets[2].load_state_dict(torch.load("peng_0.9989.pth"))
+    agent.nets[3].load_state_dict(torch.load("chi_0.9802.pth"))
+    agent.nets[4].load_state_dict(torch.load("gang_1.0.pth"))
+
     # TODO : add models
     # 1 : 打牌， 2:碰， 3:吃，4:杠
+
+
     while(True):
         Input = get_input(1)[-1]
         total_request.append(Input)
@@ -516,7 +525,7 @@ def longterm_programming():
                                     features[0][card_type] += 1
                                     for i in range(3):
                                         features[0][card_type - chi_res + i] -= 1
-                                        features[4][carfd_type - chi_res + i] += 1
+                                        features[4][card_type - chi_res + i] += 1
 
                                     mask = features[0]
                                     pred_logits = agent.nets[1](features.view(1, -1))
@@ -607,8 +616,8 @@ def longterm_programming():
 
                                     features[0][card_type] += 1
                                     for i in range(3):
-                                        feature[0][card_type - chi_res + i] -= 1
-                                        feature[4][card_type - chi_res + i] += 1
+                                        features[0][card_type - chi_res + i] -= 1
+                                        features[4][card_type - chi_res + i] += 1
 
                                     mask = features[0]
                                     pred_logits = agent.nets[1](features.view(1, -1))
@@ -698,8 +707,8 @@ def longterm_programming():
 
                                     features[0][card_type] += 1
                                     for i in range(3):
-                                        feature[0][card_type - chi_res + i] -= 1
-                                        feature[4][card_type - chi_res + i] += 1
+                                        features[0][card_type - chi_res + i] -= 1
+                                        features[4][card_type - chi_res + i] += 1
 
                                     mask = features[0]
                                     pred_logits = agent.nets[1](features.view(1, -1))

@@ -230,7 +230,7 @@ path_play = './output2017/PLAY'
 path_mo = './output2017/MO'
 dataset_all = [[], [], [], [], []]
 
-class agent(object):
+class Agent(object):
     def __init__(self):
         self.memory = deque()
 
@@ -556,7 +556,7 @@ def test_discard(net, test_dataset,i, net_number):
             
 
 if __name__ == "__main__":
-    myagent = agent()
+    myagent = Agent()
     '''
     with open('train.txt', "r", encoding='utf-8') as f:
         file  = single_file_reader(f)
