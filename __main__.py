@@ -515,8 +515,8 @@ def longterm_programming():
 
                                     features[0][card_type] += 1
                                     for i in range(3):
-                                        feature[0][card_type - chi_res + i] -= 1
-                                        feature[4][card_type - chi_res + i] += 1
+                                        features[0][card_type - chi_res + i] -= 1
+                                        features[4][carfd_type - chi_res + i] += 1
 
                                     mask = features[0]
                                     pred_logits = agent.nets[1](features.view(1, -1))

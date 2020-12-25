@@ -442,7 +442,7 @@ def train_net(train_net, dataset, net_number, epoch=3000):
 
 
 def train_discard(train_net, dataset, net_number, epoch=3000):
-    #train_net.load_state_dict(torch.load("models1/checkpoint_79_0.39933474900586413.pth"))
+    train_net.load_state_dict(torch.load("models1/checkpoint_39_0.5721991605730202_1e-3.pth"))
     train_net.train()
     train_data, valid_data, test_data = train_test_split(dataset)
     n_train  = len(train_data)
@@ -565,8 +565,8 @@ if __name__ == "__main__":
     print(dataset)
     '''
     myagent.dataloader()
-    #train_discard(myagent.nets[1], dataset_all[1],1)
-    train_net(myagent.nets[4], dataset_all[4],4)
+    train_discard(myagent.nets[1], dataset_all[1],1)
+    #train_net(myagent.nets[4], dataset_all[4],4)
         
         
     
